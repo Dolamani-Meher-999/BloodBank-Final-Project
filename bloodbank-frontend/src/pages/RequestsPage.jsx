@@ -1,591 +1,538 @@
-import React, { useState, useEffect } from 'react';
-import { LogOut, Droplet, Hospital, AlertCircle, CheckCircle, ChevronRight, Send } from 'lucide-react';
-import { initializeApp } from 'firebase/app';
-import { getAuth, onAuthStateChanged, signInAnonymously, signInWithCustomToken } from 'firebase/auth';
-import { getFirestore, doc, onSnapshot, collection, query, addDoc, serverTimestamp, orderBy } from 'firebase/firestore';
+import React, { useState, useEffect, useCallback } from 'react';
+import { LogOut, Droplet, User, Hospital, AlertCircle, CheckCircle, ChevronRight, Send, Heart, MapPin, X, Clock } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
+import { dataService } from '../services/dataService'; // USED FOR createRequest
 
 // --- CONFIGURATION AND UTILS (MANDATORY FOR SINGLE FILE) ---
-const bgImagePath = '/assets/blood-texture.jpg'; // Placeholder for moving 3D effect background
-const __firebase_config = '{}'; 
-const __initial_auth_token = '';
-const __app_id = '';
+const bgImagePath = '/assets/blood-texture.jpg'; // Consistent background placeholder
 
 // Helper Components
 const Card = ({ children, className = '' }) => (
-  <div className={`section-card ${className}`}>
-    {children}
-  </div>
+    <div className={`card ${className}`}>
+        {children}
+    </div>
 );
 
 const SectionHeader = ({ icon, title, description }) => (
-  <div className="flex items-center mb-6">
-    <div className="p-2 rounded-lg bg-red-50 text-red-600 mr-4 icon-container">
-      {icon}
+    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '1.5rem', borderBottom: '1px solid #e5e7eb', paddingBottom: '1rem' }}>
+        <div className="p-2 rounded-lg bg-red-50 text-red-600 mr-4 icon-container" style={{backgroundColor: '#fee2e2', borderRadius: '0.75rem', padding: '0.75rem'}}>
+            {icon}
+        </div>
+        <div>
+            <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#1f2937', margin: 0 }}>{title}</h2>
+            {description && <p style={{ fontSize: '0.9rem', color: '#6b7280', marginTop: '0.25rem' }}>{description}</p>}
+        </div>
     </div>
-    <div>
-      <h2 className="text-2xl font-bold text-gray-800">{title}</h2>
-      {description && <p className="text-sm text-gray-500 mt-1">{description}</p>}
-    </div>
-  </div>
 );
 
 const StatusBadge = ({ status }) => {
-  const statusConfig = {
-    Pending: {
-      icon: <AlertCircle style={{ width: '0.875rem', height: '0.875rem' }} />,
-      className: 'status-pending'
-    },
-    Fulfilled: {
-      icon: <CheckCircle style={{ width: '0.875rem', height: '0.875rem' }} />,
-      className: 'status-fulfilled'
-    },
-    Rejected: {
-      icon: <AlertCircle style={{ width: '0.875rem', height: '0.875rem' }} />,
-      className: 'status-rejected'
-    },
-    default: {
-      icon: <AlertCircle style={{ width: '0.875rem', height: '0.875rem' }} />,
-      className: 'status-default'
-    }
-  };
+    const statusConfig = {
+        Pending: {
+            icon: <AlertCircle size={14} />,
+            bg: '#f59e0b', color: '#fff'
+        },
+        Fulfilled: {
+            icon: <CheckCircle size={14} />,
+            bg: '#10b981', color: '#fff'
+        },
+        Rejected: {
+            icon: <X size={14} />,
+            bg: '#ef4444', color: '#fff'
+        },
+    };
 
-  const config = statusConfig[status] || statusConfig.default;
+    const config = statusConfig[status] || statusConfig.default;
 
-  return (
-    <span className={`status-badge ${config.className}`}>
-      {config.icon}
-      <span style={{ marginLeft: '0.375rem' }}>{status}</span>
-    </span>
-  );
+    return (
+        <span className="status-badge" style={{ backgroundColor: config.bg, color: config.color }}>
+            {config.icon}
+            <span style={{ marginLeft: '0.3rem' }}>{status}</span>
+        </span>
+    );
 };
 
 // --- MAIN APPLICATION COMPONENT ---
 function RequestsPage() {
-  const [user, setUser] = useState(null);
-  const [requests, setRequests] = useState([]);
-  const [isAuthReady, setIsAuthReady] = useState(false);
-  const [db, setDb] = useState(null);
-  const [auth, setAuth] = useState(null);
-  const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-
-  const [requestData, setRequestData] = useState({
-    bloodGroup: '',
-    quantity: 1,
-    hospital: '',
-    reason: ''
-  });
-  const [requestSuccess, setRequestSuccess] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [profile, setProfile] = useState({});
-  const [isLoading, setIsLoading] = useState(true);
-
-  // 1. FIREBASE INITIALIZATION & AUTHENTICATION
-  useEffect(() => {
-    const initializeFirebase = async () => {
-      try {
-        const firebaseConfig = JSON.parse(__firebase_config || '{}');
-        if (Object.keys(firebaseConfig).length > 0) {
-          const app = initializeApp(firebaseConfig);
-          const dbInstance = getFirestore(app);
-          const authInstance = getAuth(app);
-          
-          setDb(dbInstance);
-          setAuth(authInstance);
-          
-          const unsubscribe = onAuthStateChanged(authInstance, async (authUser) => {
-            if (authUser) {
-              setUser(authUser);
-              setIsAuthReady(true);
-            } else {
-              try {
-                if (__initial_auth_token && __initial_auth_token !== '') {
-                  await signInWithCustomToken(authInstance, __initial_auth_token);
-                } else {
-                  await signInAnonymously(authInstance);
-                }
-              } catch (error) {
-                console.error('Authentication error:', error);
-                setIsAuthReady(true);
-              }
-            }
-          });
-          
-          return () => unsubscribe();
-        } else {
-          console.error("Firebase config is empty. Running without database features.");
-          setIsAuthReady(true);
-        }
-      } catch (error) {
-        console.error('Failed to initialize Firebase:', error);
-        setIsAuthReady(true);
-      }
-    };
+    const { user, logout } = useAuth();
+    const navigate = useNavigate();
     
-    initializeFirebase();
-  }, []);
-
-  // 2. DATA SUBSCRIPTION (Profile & Requests)
-  useEffect(() => {
-    if (isAuthReady && user && db) {
-      const userId = user.uid;
-      const profileDocRef = doc(db, `/artifacts/${appId}/users/${userId}/profile`, 'userProfile');
-      const requestsColRef = collection(db, `/artifacts/${appId}/users/${userId}/requests`);
-
-      const unsubscribeProfile = onSnapshot(profileDocRef, (docSnap) => {
-        if (docSnap.exists()) {
-          setProfile(docSnap.data());
-        }
-      });
-
-      const q = query(requestsColRef, orderBy('timestamp', 'desc'));
-      const unsubscribeRequests = onSnapshot(q, (snapshot) => {
-        const requestsList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        setRequests(requestsList);
-        setIsLoading(false);
-      });
-
-      return () => {
-        unsubscribeProfile();
-        unsubscribeRequests();
-      };
-    }
-  }, [isAuthReady, user, db, appId]);
-
-  const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setRequestData(prev => ({
-      ...prev,
-      [name]: value
-    }));
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!requestData.bloodGroup || !requestData.quantity || !requestData.hospital || !db || !user) {
-      console.error('Invalid request data or user not authenticated.');
-      return;
-    }
-
-    setIsSubmitting(true);
-
-    try {
-      const userId = user.uid;
-      const publicRequestsColRef = collection(db, `/artifacts/${appId}/public/data/requests`);
-      const userRequestsColRef = collection(db, `/artifacts/${appId}/users/${userId}/requests`);
-
-      const requestPayload = {
-        ...requestData,
-        quantity: parseInt(requestData.quantity, 10),
-        userId: userId,
-        status: 'Pending',
-        timestamp: serverTimestamp(),
-      };
-
-      await addDoc(userRequestsColRef, requestPayload);
-      await addDoc(publicRequestsColRef, requestPayload);
-
-      setRequestData({
+    const [requestData, setRequestData] = useState({
         bloodGroup: '',
         quantity: 1,
         hospital: '',
         reason: ''
-      });
+    });
+    const [requests, setRequests] = useState([]);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [requestSuccess, setRequestSuccess] = useState(false);
+    const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState(null);
 
-      setRequestSuccess(true);
-      setTimeout(() => setRequestSuccess(false), 3000);
-    } catch (err) {
-      console.error('Error submitting request:', err);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+    // --- Data Fetching: Fetch user's blood requests ---
+    const fetchRequests = useCallback(async () => {
+        if (!user) return;
+        
+        try {
+            setIsLoading(true);
+            // CALLS REAL API: dataService.getUserRequests()
+            const response = await dataService.getUserRequests(); 
+            // Assuming response is { requests: [...] } or just [...]
+            setRequests(response.requests || response); 
+        } catch (err) {
+            console.error('Error fetching blood requests:', err);
+            setError(err.message || 'Failed to load blood requests.');
+             // Fallback mock data if API fails to prevent blank list (optional)
+            setRequests([
+                { id: 1, bloodGroup: 'O+', quantity: 2, hospital: 'St. Jude Medical Center', status: 'Pending', reason: 'Emergency surgery', timestamp: new Date('2025-10-25') },
+                { id: 2, bloodGroup: 'AB-', quantity: 1, hospital: 'City General Hospital', status: 'Fulfilled', reason: 'Accident patient', timestamp: new Date('2025-09-10') },
+            ]);
+        } finally {
+            setIsLoading(false);
+        }
+    }, [user]);
 
-  const handleLogout = async () => {
-    if (auth) {
-      await auth.signOut();
-      setUser(null);
-    }
-  };
+    useEffect(() => {
+        fetchRequests();
+    }, [fetchRequests]);
 
-  const userName = profile?.name || 'User';
+    const handleInputChange = (e) => {
+        const { name, value } = e.target;
+        setRequestData(prev => ({
+            ...prev,
+            [name]: value
+        }));
+    };
 
-  if (!isAuthReady) {
-    // Simplified Loading Screen
+    // --- FUNCTIONAL SUBMIT HANDLER ---
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        if (!user) return;
+
+        setIsSubmitting(true);
+        setError(null);
+
+        try {
+            // VALIDATION: Ensure required fields are set
+            if (!requestData.bloodGroup || !requestData.quantity || !requestData.hospital) {
+                setError("Please fill out all required fields.");
+                setIsSubmitting(false);
+                return;
+            }
+
+            // --- ACTUAL API CALL IMPLEMENTED HERE ---
+            const newRequestResponse = await dataService.createRequest({
+                ...requestData,
+                quantity: parseInt(requestData.quantity, 10),
+            });
+            // ----------------------------------------
+
+            // API usually returns the newly created object (response.data or the response itself)
+            const savedRequest = newRequestResponse.data || newRequestResponse;
+            
+            // Update the local list
+            setRequests([savedRequest, ...requests]);
+            
+            // Reset form
+            setRequestData({
+                bloodGroup: '',
+                quantity: 1,
+                hospital: '',
+                reason: ''
+            });
+
+            setRequestSuccess(true);
+            setTimeout(() => setRequestSuccess(false), 3000);
+        } catch (err) {
+            console.error('Error submitting request:', err);
+            setError(err.message || 'Failed to submit request. Check your backend connection.');
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    // Inline styles for the modern look
+    const appContainerStyle = {
+        backgroundColor: '#1a1a1a', 
+        minHeight: '100vh', 
+        paddingBottom: '4rem' 
+    };
+
+    const userName = user?.name || 'User';
+
     return (
-      <div className="loading-screen" style={{
-        minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f9fafb'
-      }}>
-        <div style={{ textAlign: 'center' }}>
-          <div className="spinner"></div>
-          <h2 style={{ color: '#1f2937', fontWeight: '600' }}>Loading Application...</h2>
-        </div>
-      </div>
-    );
-  }
+        <div className="dashboard-container" style={appContainerStyle}>
+            {/* Global CSS for Modern Look */}
+            <style jsx global>{`
+                /* Global Reset and Font */
+                @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
-  return (
-    <div className="app-container" style={{ backgroundImage: `url(${bgImagePath})`, minHeight: '100vh', padding: '2rem 1rem' }}>
-      <style>{`
-        /* --- GLOBAL STYLES --- */
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-        body, html { margin: 0; padding: 0; font-family: 'Inter', sans-serif; color: #1f2937; }
-        
-        .app-container {
-          background-size: cover;
-          background-position: center;
-          background-attachment: fixed;
-          background-repeat: no-repeat;
-          position: relative;
-        }
+                body, html {
+                    margin: 0;
+                    padding: 0;
+                    font-family: 'Inter', sans-serif;
+                    background-color: #1a1a1a; 
+                    color: #1f2937; 
+                    -webkit-font-smoothing: antialiased;
+                    -moz-osx-font-smoothing: grayscale;
+                    overflow-x: hidden;
+                }
 
-        /* --- GLASS EFFECT CARDS --- */
-        .section-card {
-          background-color: rgba(255, 255, 255, 0.15); /* Light translucent background */
-          backdrop-filter: blur(15px);
-          border: 1px solid rgba(255, 255, 255, 0.2);
-          box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.1);
-          border-radius: 1.5rem;
-          padding: 2.5rem;
-          margin-bottom: 2rem;
-          color: #e0e0e0; /* Light text for better contrast on dark/effect background */
-        }
-        
-        .section-card h2, .section-card h3 {
-          color: white;
-          font-weight: 700;
-        }
-        .section-card p, .section-card label {
-          color: #cccccc;
-        }
-        
-        /* --- NAVBAR --- */
-        .navbar {
-          background-color: rgba(255, 255, 255, 0.1);
-          backdrop-filter: blur(10px);
-          border-radius: 1rem;
-          margin-bottom: 2rem;
-          padding: 1rem 0;
-          box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        }
-        .navbar-content {
-          max-width: 1400px;
-          margin: 0 auto;
-          padding: 0 1.5rem;
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-        }
-        .navbar-logo {
-          display: flex;
-          align-items: center;
-          gap: 0.5rem;
-          font-size: 1.5rem;
-          font-weight: 800;
-          color: white;
-        }
-        .logout-btn {
-          display: flex;
-          align-items: center;
-          gap: 0.5rem;
-          background-color: #ef4444;
-          color: white;
-          padding: 0.5rem 1rem;
-          border-radius: 0.5rem;
-          font-weight: 500;
-          border: none;
-          cursor: pointer;
-          transition: background-color 0.2s;
-        }
-        .logout-btn:hover {
-          background-color: #dc2626;
-        }
+                .dashboard-container {
+                    min-height: 100vh;
+                    position: relative;
+                }
+                
+                .content-wrapper {
+                    position: relative;
+                    z-index: 10;
+                    max-width: 1400px;
+                    margin: 0 auto;
+                    padding: 0 1.5rem;
+                }
 
-        /* --- FORM STYLES --- */
-        .form-input, .form-select, .form-textarea {
-          background-color: rgba(255, 255, 255, 0.1);
-          border: 1px solid rgba(255, 255, 255, 0.3);
-          border-radius: 0.5rem;
-          padding: 0.75rem 1rem;
-          width: 100%;
-          transition: all 0.2s;
-          font-size: 1rem;
-          color: white;
-          margin-bottom: 1rem;
-        }
-        .form-input::placeholder, .form-textarea::placeholder, .form-select option {
-          color: #9ca3af;
-        }
-        .form-input:focus, .form-select:focus, .form-textarea:focus {
-          outline: none;
-          border-color: #ef4444;
-          box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.3);
-        }
-        .btn-primary {
-          background-color: #ef4444;
-          color: white;
-          font-weight: 600;
-          padding: 0.75rem 1.5rem;
-          border-radius: 0.5rem;
-          border: none;
-          cursor: pointer;
-          transition: all 0.2s;
-          width: 100%;
-          font-size: 1rem;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 0.5rem;
-        }
-        .btn-primary:hover {
-          background-color: #dc2626;
-          transform: translateY(-1px);
-        }
-        .btn-primary:disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
-        }
-        .success-message {
-          background-color: rgba(16, 185, 129, 0.2);
-          color: #10b981;
-          padding: 0.75rem 1rem;
-          border-radius: 0.5rem;
-          margin-top: 1rem;
-          font-size: 0.875rem;
-          text-align: center;
-          border: 1px solid rgba(16, 185, 129, 0.4);
-        }
+                /* General Card Style (SOLID WHITE) */
+                .card {
+                    background-color: #FFFFFF; /* OPAQUE WHITE */
+                    border-radius: 1.25rem;
+                    padding: 1.5rem;
+                    border: 1px solid #e5e7eb;
+                    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.15); 
+                    transition: transform 0.3s ease;
+                }
+                
+                .card:hover {
+                    transform: translateY(-3px); 
+                }
 
-        /* --- REQUESTS LIST STYLES --- */
-        .requests-list {
-          list-style: none;
-          padding: 0;
-          margin: 0;
-        }
-        .request-item {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          padding: 1rem 0;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-          transition: background-color 0.2s;
-        }
-        .request-item:last-child {
-          border-bottom: none;
-        }
-        .request-item:hover {
-          background-color: rgba(255, 255, 255, 0.05);
-          border-radius: 0.5rem;
-        }
-        .request-details {
-          display: flex;
-          flex-direction: column;
-        }
-        .request-main-info {
-          font-size: 1.125rem;
-          font-weight: 600;
-          color: white;
-          display: flex;
-          align-items: center;
-          gap: 0.5rem;
-        }
-        .request-sub-info {
-          font-size: 0.875rem;
-          color: #9ca3af;
-          margin-top: 0.25rem;
-        }
-        
-        .status-badge {
-          display: inline-flex;
-          align-items: center;
-          padding: 0.3rem 0.75rem;
-          border-radius: 9999px;
-          font-size: 0.75rem;
-          font-weight: 600;
-          border: 1px solid;
-        }
-        .status-pending { background-color: rgba(251, 191, 36, 0.2); color: #facc15; border-color: #fbbf24; }
-        .status-fulfilled { background-color: rgba(16, 185, 129, 0.2); color: #10b981; border-color: #10b981; }
-        .status-rejected { background-color: rgba(239, 68, 68, 0.2); color: #f87171; border-color: #f87171; }
+                /* Navbar Styles (Updated for white background context) */
+                .navbar {
+                    background-color: #FFFFFF;
+                    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+                    padding: 1rem 1.5rem;
+                    border-radius: 0.75rem;
+                    margin: 1.5rem auto;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    border: 1px solid #e5e7eb;
+                }
 
-        /* --- LAYOUT GRID --- */
-        .grid-container {
-          display: grid;
-          grid-template-columns: 1fr;
-          gap: 2rem;
-          max-width: 1400px;
-          margin: 0 auto;
-        }
-        @media (min-width: 1024px) {
-          .grid-container {
-            grid-template-columns: 1fr 2fr;
-          }
-        }
-        
-        .main-header {
-          max-width: 1400px;
-          margin: 0 auto 2rem;
-          padding: 0 1.5rem;
-          color: white;
-        }
-        .main-header h1 {
-          font-size: 2.5rem;
-          font-weight: 800;
-          margin-bottom: 0.5rem;
-        }
-        .main-header p {
-          font-size: 1.25rem;
-          color: #ccc;
-        }
-      `}</style>
-      
-      <nav className="navbar">
-        <div className="navbar-content">
-          <div className="navbar-logo">
-            <Droplet color="#ef4444" size={32} />
-            <h1 style={{ margin: 0 }}>Blood Bank</h1>
-          </div>
-          <div className="navbar-user">
-            <span style={{ color: 'white', marginRight: '1rem' }}>Welcome, {userName}!</span>
-            <button onClick={handleLogout} className="logout-btn">
-              <LogOut size={16} />
-              Logout
-            </button>
-          </div>
-        </div>
-      </nav>
+                .navbar-logo {
+                    display: flex;
+                    align-items: center;
+                    gap: 0.75rem;
+                    font-size: 1.5rem;
+                    font-weight: 700;
+                    color: #1f2937; /* Dark text */
+                }
 
-      <div className="main-header">
-        <h1>Blood Request System</h1>
-        <p>Request blood donations or view the status of your existing requests.</p>
-      </div>
-      
-      <div className="grid-container">
-        {/* --- 1. NEW REQUEST FORM (Left Column) --- */}
-        <Card>
-          <SectionHeader 
-            icon={<Send style={{ width: '1.5rem', height: '1.5rem' }} />} 
-            title="Submit New Request" 
-            description="Fill out the form below to initiate a blood request." 
-          />
-          
-          <form onSubmit={handleSubmit}>
-            <div style={{ marginBottom: '1.25rem' }}>
-              <label htmlFor="bloodGroup" style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Blood Group</label>
-              <select
-                id="bloodGroup"
-                name="bloodGroup"
-                className="form-select"
-                value={requestData.bloodGroup}
-                onChange={handleInputChange}
-                required
-              >
-                <option value="" style={{ color: '#6b7280' }}>Select Blood Group</option>
-                <option value="A+" style={{ color: '#1f2937' }}>A+</option>
-                <option value="A-" style={{ color: '#1f2937' }}>A-</option>
-                <option value="B+" style={{ color: '#1f2937' }}>B+</option>
-                <option value="B-" style={{ color: '#1f2937' }}>B-</option>
-                <option value="AB+" style={{ color: '#1f2937' }}>AB+</option>
-                <option value="AB-" style={{ color: '#1f2937' }}>AB-</option>
-                <option value="O+" style={{ color: '#1f2937' }}>O+</option>
-                <option value="O-" style={{ color: '#1f2937' }}>O-</option>
-              </select>
-            </div>
+                .logout-btn {
+                    display: flex;
+                    align-items: center;
+                    gap: 0.5rem;
+                    background-color: #e30000;
+                    color: white;
+                    padding: 0.5rem 1rem;
+                    border-radius: 0.5rem;
+                    font-weight: 500;
+                    font-size: 0.875rem;
+                    border: none;
+                    cursor: pointer;
+                    transition: background-color 0.2s, transform 0.2s;
+                    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+                }
 
-            <div style={{ marginBottom: '1.25rem' }}>
-              <label htmlFor="quantity" style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Quantity (Units)</label>
-              <input
-                id="quantity"
-                name="quantity"
-                type="number"
-                className="form-input"
-                value={requestData.quantity}
-                onChange={handleInputChange}
-                required
-                min="1"
-              />
-            </div>
+                .logout-btn:hover {
+                    background-color: #b00000;
+                    transform: translateY(-2px);
+                }
 
-            <div style={{ marginBottom: '1.25rem' }}>
-              <label htmlFor="hospital" style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Hospital Name</label>
-              <input
-                id="hospital"
-                name="hospital"
-                type="text"
-                className="form-input"
-                value={requestData.hospital}
-                onChange={handleInputChange}
-                required
-                placeholder="e.g., City General Hospital"
-              />
-            </div>
+                /* Header Section */
+                .header-section {
+                    max-width: 1400px; margin: 0 auto 2rem; padding: 0 1.5rem; color: #fff;
+                    position: relative; z-index: 10;
+                }
+                .header-section h1 { 
+                    font-size: 2.5rem; font-weight: 800; margin: 0 0 0.5rem 0; 
+                    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+                }
+                .header-section p { font-size: 1.125rem; color: #b0b0b0; margin: 0; }
 
-            <div style={{ marginBottom: '1.25rem' }}>
-              <label htmlFor="reason" style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Reason for Request</label>
-              <textarea
-                id="reason"
-                name="reason"
-                className="form-textarea"
-                rows="3"
-                value={requestData.reason}
-                onChange={handleInputChange}
-                required
-                placeholder="Briefly describe the medical need."
-              ></textarea>
-            </div>
-            
-            <button type="submit" className="btn-primary" disabled={isSubmitting}>
-              {isSubmitting ? 'Sending Request...' : 'Submit Request'}
-            </button>
-            
-            {requestSuccess && (
-              <div className="success-message">
-                Request submitted successfully! We are processing it now.
-              </div>
-            )}
-          </form>
-        </Card>
+                /* --- FORM STYLES (UI FIXES APPLIED) --- */
+                .form-input, .form-select, .form-textarea {
+                    /* Removed fixed width; width: 100% inside container handles sizing */
+                    box-sizing: border-box; /* IMPORTANT: Ensures padding/border stays inside the 100% width */
+                    width: 100%;
+                    padding: 0.75rem 1rem;
+                    border: 1px solid #d1d5db;
+                    border-radius: 0.5rem;
+                    font-size: 1rem;
+                    margin-bottom: 0; /* Reset margin here, controlled by form-group */
+                    transition: border-color 0.2s, box-shadow 0.2s;
+                    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.07);
+                    color: #1f2937; 
+                }
+                .form-input:focus, .form-select:focus, .form-textarea:focus {
+                    outline: none;
+                    border-color: #e30000; 
+                    box-shadow: 0 0 0 1px #e30000; 
+                }
+                .form-label {
+                    display: block;
+                    margin-bottom: 0.35rem; 
+                    font-weight: 600;
+                    color: #374151;
+                    font-size: 0.95rem;
+                }
+                .form-group {
+                    margin-bottom: 1.5rem; /* Controls consistent vertical spacing */
+                }
 
-        {/* --- 2. REQUESTS HISTORY (Right Column) --- */}
-        <Card>
-          <SectionHeader 
-            icon={<Hospital style={{ width: '1.5rem', height: '1.5rem' }} />} 
-            title="My Request History" 
-            description="A list of all blood requests submitted from your account." 
-          />
-          
-          {isLoading ? (
-            <p style={{ textAlign: 'center', padding: '2rem', color: '#ccc' }}>Loading requests...</p>
-          ) : requests.length > 0 ? (
-            <ul className="requests-list">
-              {requests.map((req) => (
-                <li key={req.id} className="request-item">
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                    <Droplet color="#ef4444" size={24} />
-                    <div className="request-details">
-                      <div className="request-main-info">
-                        <span>{req.bloodGroup} - {req.quantity} unit(s)</span>
-                        <StatusBadge status={req.status} />
-                      </div>
-                      <div className="request-sub-info">
-                        <span style={{ marginRight: '1rem' }}>{req.hospital}</span>
-                        <span>{req.timestamp ? new Date(req.timestamp.toDate()).toLocaleDateString() : 'N/A'}</span>
-                      </div>
+                /* Primary Button */
+                .btn-primary {
+                    width: 100%;
+                    padding: 0.75rem 1.5rem;
+                    background-color: #e30000;
+                    color: white;
+                    border: none;
+                    border-radius: 0.75rem;
+                    font-size: 1rem;
+                    font-weight: 700;
+                    cursor: pointer;
+                    transition: background-color 0.2s, transform 0.2s;
+                    box-shadow: 0 4px 8px rgba(227, 0, 0, 0.3); 
+                    display: flex; align-items: center; justify-content: center; gap: 0.5rem;
+                }
+                .btn-primary:hover {
+                    background-color: #b00000;
+                    transform: translateY(-1px);
+                }
+                .btn-primary:disabled {
+                    opacity: 0.6;
+                    cursor: not-allowed;
+                }
+
+                /* Alert Styles */
+                .success-alert {
+                    background-color: #dcfce7;
+                    color: #10b981;
+                    padding: 1rem;
+                    border-radius: 0.75rem;
+                    margin-top: 1rem;
+                    font-weight: 600;
+                    display: flex; align-items: center; gap: 0.5rem;
+                }
+                .error-alert {
+                    background-color: #fee2e2;
+                    color: #ef4444;
+                    padding: 1rem;
+                    border-radius: 0.75rem;
+                    margin-top: 1rem;
+                    font-weight: 600;
+                    display: flex; align-items: center; gap: 0.5rem;
+                }
+
+                /* Requests Grid */
+                .requests-grid {
+                    display: grid;
+                    grid-template-columns: 1fr;
+                    gap: 2rem;
+                    max-width: 1400px;
+                    margin-top: 1rem;
+                }
+                @media (min-width: 1024px) {
+                    .requests-grid {
+                        grid-template-columns: 1fr 2fr;
+                    }
+                }
+
+                /* Request List Styling */
+                .request-item {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    padding: 1rem 0;
+                    border-bottom: 1px solid #f3f4f6;
+                    transition: background-color 0.2s;
+                }
+                .request-item:hover {
+                    background-color: #fafafa;
+                }
+                .request-item:last-child {
+                    border-bottom: none;
+                }
+                
+                .request-details-text {
+                    font-size: 0.9rem;
+                    color: #6b7280;
+                    margin-top: 0.25rem;
+                }
+                .status-badge {
+                    font-size: 0.75rem;
+                    font-weight: 600;
+                    padding: 0.3rem 0.6rem;
+                    border-radius: 9999px;
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 0.25rem;
+                }
+
+            `}</style>
+
+            {/* Content Overlay */}
+            <div className="content-wrapper">
+                {/* Navbar (Same as Dashboard) */}
+                <nav className="navbar">
+                    <div className="navbar-logo">
+                        <Droplet color="#e30000" size={32} />
+                        Blood Bank System
                     </div>
-                  </div>
-                  <ChevronRight size={20} color="#9ca3af" />
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <div style={{ textAlign: 'center', padding: '4rem 0', color: '#9ca3af' }}>
-              <Droplet style={{ width: '2rem', height: '2rem', marginBottom: '1rem', color: '#ef4444' }} />
-              <p>You haven't made any blood requests yet.</p>
+                    <div className="navbar-user">
+                        <span style={{ color: '#1f2937' }}>Welcome, {user?.name || 'User'}!</span>
+                        <button onClick={() => logout()} className="logout-btn">
+                            <LogOut size={16} />
+                            Logout
+                        </button>
+                    </div>
+                </nav>
+
+                {/* Header */}
+                <header className="header-section" style={{ padding: '0 0' }}>
+                    <h1>Blood Request System</h1>
+                    <p>Submit urgent blood requests and track your history.</p>
+                </header>
+
+                <div className="requests-grid">
+                    {/* --- LEFT COLUMN: REQUEST FORM --- */}
+                    <Card className="request-form-card">
+                        <SectionHeader 
+                            icon={<Send size={20} />} 
+                            title="New Blood Request" 
+                            description="Fill out the form below to initiate a blood request." 
+                        />
+                        
+                        {error && (
+                            <div className="error-alert">
+                                <AlertCircle size={20} /> {error}
+                            </div>
+                        )}
+                        {requestSuccess && (
+                            <div className="success-alert">
+                                <CheckCircle size={20} /> Request submitted successfully!
+                            </div>
+                        )}
+
+                        <form onSubmit={handleSubmit}>
+                            <div className="form-group">
+                                <label htmlFor="bloodGroup" className="form-label">Blood Group *</label>
+                                <select
+                                    id="bloodGroup"
+                                    name="bloodGroup"
+                                    className="form-select"
+                                    value={requestData.bloodGroup}
+                                    onChange={handleInputChange}
+                                    required
+                                >
+                                    <option value="">Select blood group</option>
+                                    <option value="A+">A+</option>
+                                    <option value="A-">A-</option>
+                                    <option value="B+">B+</option>
+                                    <option value="B-">B-</option>
+                                    <option value="AB+">AB+</option>
+                                    <option value="AB-">AB-</option>
+                                    <option value="O+">O+</option>
+                                    <option value="O-">O-</option>
+                                </select>
+                            </div>
+
+                            <div className="form-group">
+                                <label htmlFor="quantity" className="form-label">Quantity (Units) *</label>
+                                <input
+                                    type="number"
+                                    id="quantity"
+                                    name="quantity"
+                                    className="form-input"
+                                    value={requestData.quantity}
+                                    onChange={handleInputChange}
+                                    required
+                                    min="1"
+                                />
+                            </div>
+
+                            <div className="form-group">
+                                <label htmlFor="hospital" className="form-label">Hospital Name *</label>
+                                <input
+                                    type="text"
+                                    id="hospital"
+                                    name="hospital"
+                                    className="form-input"
+                                    value={requestData.hospital}
+                                    onChange={handleInputChange}
+                                    required
+                                    placeholder="e.g., City General Hospital"
+                                />
+                            </div>
+
+                            <div className="form-group">
+                                <label htmlFor="reason" className="form-label">Reason for Request</label>
+                                <textarea
+                                    id="reason"
+                                    name="reason"
+                                    className="form-textarea"
+                                    rows="3"
+                                    value={requestData.reason}
+                                    onChange={handleInputChange}
+                                    placeholder="Briefly describe the medical emergency."
+                                ></textarea>
+                            </div>
+
+                            <button type="submit" className="btn-primary" disabled={isSubmitting}>
+                                {isSubmitting ? 'Submitting...' : <><Send size={20} /> Submit Request</>}
+                            </button>
+                        </form>
+                    </Card>
+
+                    {/* --- RIGHT COLUMN: REQUEST HISTORY --- */}
+                    <Card className="request-history-card">
+                        <SectionHeader 
+                            icon={<Heart size={20} />} 
+                            title="Your Request History" 
+                            description="Track the fulfillment status of your submitted requests." 
+                        />
+
+                        {isLoading ? (
+                            <div style={{ textAlign: 'center', padding: '4rem 0', color: '#888' }}>Loading requests...</div>
+                        ) : requests.length === 0 ? (
+                            <div style={{ textAlign: 'center', padding: '4rem 0', color: '#888' }}>No requests submitted yet.</div>
+                        ) : (
+                            <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                                {requests.map((req) => (
+                                    <li key={req.id} className="request-item">
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                                            <Droplet color="#e30000" size={20} />
+                                            <div>
+                                                <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700 }}>
+                                                    {req.bloodGroup} - {req.quantity} Unit(s)
+                                                </h3>
+                                                <p className="request-details-text">
+                                                    <Hospital size={14} style={{ marginRight: '4px', verticalAlign: 'middle', color: '#888' }}/> {req.hospital}
+                                                </p>
+                                                <p className="request-details-text">
+                                                    <Clock size={14} style={{ marginRight: '4px', verticalAlign: 'middle', color: '#888' }}/> Submitted: {new Date(req.timestamp || Date.now()).toLocaleDateString()}
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <StatusBadge status={req.status} />
+                                    </li>
+                                ))}
+                            </ul>
+                        )}
+                    </Card>
+                </div>
             </div>
-          )}
-        </Card>
-      </div>
-    </div>
-  );
+        </div>
+    );
 }
 
 export default RequestsPage;

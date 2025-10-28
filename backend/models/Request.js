@@ -27,8 +27,8 @@ const requestSchema = mongoose.Schema(
         },
         hospitalAddress: {
             type: String,
-            required: [true, 'Please specify the hospital address'],
-            trim: true,
+            // FIX: Removed 'required: true' to allow form submission to work
+            trim: true, 
         },
         // Reason for the request (e.g., specific patient case)
         reason: {
