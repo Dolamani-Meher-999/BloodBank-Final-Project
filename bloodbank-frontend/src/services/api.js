@@ -2,8 +2,8 @@ import axios from 'axios';
 import { authService } from './authService';
 
 // Define the base URL for your Express backend API
-// FIX: Set the base URL to include the host and port of your backend.
-const API_BASE_URL = 'http://localhost:5000/api/v1'; // <-- UPDATED BASE URL TO MATCH EXPRESS PORT 5000 AND /API/V1 PREFIX
+// Base URL for the backend API
+const API_BASE_URL = 'http://localhost:5004/api/v1'; // Updated to use port 5004
 
 const API = axios.create({
   baseURL: API_BASE_URL,

@@ -4,66 +4,93 @@ import { useAuth } from './context/AuthContext';
 
 // Lazy load the pages
 const LoginPage = lazy(() => import('./pages/LoginPage'));
-const RegisterPage = lazy(() => import('./pages/RegisterPage'));
-const DashboardPage = lazy(() => import('./pages/DashboardPage'));
+const RegisterPage = lazy(() => import('./pages/RegisterPage')); // <-- SYNTAX FIXED HERE
+const DashboardPage = lazy(() => import('./pages/DashboardPage')); // UNIFIED DASHBOARD
 const ProfilePage = lazy(() => import('./pages/ProfilePage'));
 const RequestsPage = lazy(() => import('./pages/RequestsPage'));
-// You will add more pages here (Inventory, Centers, etc.)
+const InventoryPage = lazy(() => import('./pages/InventoryPage')); 
+const CentersPage = lazy(() => import('./pages/CentersPage'));     
 
-// Component for handling private routes
+// Component for handling private routes (Simplified for single dashboard)
 const PrivateRoute = ({ element }) => {
-  const { isAuthenticated, isAuthLoading } = useAuth();
-  
-  if (isAuthLoading) {
-    // Basic loading indicator while checking authentication status
-    return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', fontSize: '1.2rem', color: '#ef4444' }}>
-        Loading...
-      </div>
-    );
-  }
+    const { isAuthenticated, isAuthLoading } = useAuth();
+    
+    if (isAuthLoading) {
+        return (
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', fontSize: '1.2rem', color: '#ef4444' }}>
+                Loading...
+            </div>
+        );
+    }
+    
+    if (!isAuthenticated) {
+        return <Navigate to="/login" replace />;
+    }
 
-  // Redirect to login if not authenticated
-  return isAuthenticated ? element : <Navigate to="/login" replace />;
+    // No role check needed here, as all authenticated users access these routes
+    return element;
+};
+
+// Component that safely redirects to the unified Dashboard
+const RoleRedirect = () => {
+    const { isAuthenticated, isAuthLoading } = useAuth();
+    
+    if (isAuthLoading) {
+        return (
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', fontSize: '1.2rem', color: '#ef4444' }}>
+                Authenticating...
+            </div>
+        );
+    }
+
+    if (!isAuthenticated) {
+        return <Navigate to="/login" replace />;
+    }
+
+    // Simply redirect authenticated users to the main dashboard
+    return <Navigate to="/dashboard" replace />;
 };
 
 function App() {
-  return (
-    <Router>
-      <Suspense fallback={
-        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', fontSize: '1.2rem', color: '#ef4444' }}>
-          Loading Page...
-        </div>
-      }>
-        <Routes>
-          {/* Public Routes */}
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/register" element={<RegisterPage />} />
-          
-          {/* Default Redirect: Send unauthenticated users to login, authenticated users to dashboard */}
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+    return (
+        <Router>
+            <Suspense fallback={
+                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', fontSize: '1.2rem', color: '#ef4444' }}>
+                    Loading Page...
+                </div>
+            }>
+                <Routes>
+                    {/* Public Routes */}
+                    <Route path="/login" element={<LoginPage />} />
+                    <Route path="/register" element={<RegisterPage />} />
+                    
+                    {/* Default Redirect: This is the first route checked after auth is ready */}
+                    <Route path="/" element={<RoleRedirect />} />
 
-          {/* Protected Routes */}
-          <Route path="/dashboard" element={<PrivateRoute element={<DashboardPage />} />} />
-          <Route path="/profile" element={<PrivateRoute element={<ProfilePage />} />} />
-          <Route path="/requests" element={<PrivateRoute element={<RequestsPage />} />} />
-          
-          {/* Add more protected routes here */}
-          {/* <Route path="/inventory" element={<PrivateRoute element={<InventoryPage />} />} /> */}
-          {/* <Route path="/centers" element={<PrivateRoute element={<CentersPage />} />} /> */}
+                    {/* --- PROTECTED ROUTES --- */}
+                    
+                    {/* All Core Pages */}
+                    <Route path="/dashboard" element={<PrivateRoute element={<DashboardPage />} />} />
+                    <Route path="/profile" element={<PrivateRoute element={<ProfilePage />} />} />
+                    <Route path="/requests" element={<PrivateRoute element={<RequestsPage />} />} />
+                    
+                    {/* Pages that were throwing 404s, now correctly mapped */}
+                    <Route path="/inventory" element={<PrivateRoute element={<InventoryPage />} />} />
+                    <Route path="/centers" element={<PrivateRoute element={<CentersPage />} />} />
 
-          {/* Fallback 404 page (optional) */}
-          <Route path="*" element={
-            <div style={{ padding: '50px', textAlign: 'center' }}>
-              <h1>404 Not Found</h1>
-              <p>The page you requested does not exist.</p>
-              <a href="/dashboard" style={{ color: '#ef4444' }}>Go to Dashboard</a>
-            </div>
-          } />
-        </Routes>
-      </Suspense>
-    </Router>
-  );
+
+                    {/* Fallback 404 page (optional) */}
+                    <Route path="*" element={
+                        <div style={{ padding: '50px', textAlign: 'center' }}>
+                            <h1>404 Not Found</h1>
+                            <p>The page you requested does not exist.</p>
+                            <a href="/" style={{ color: '#ef4444' }}>Go Home</a>
+                        </div>
+                    } />
+                </Routes>
+            </Suspense>
+        </Router>
+    );
 }
 
 export default App;

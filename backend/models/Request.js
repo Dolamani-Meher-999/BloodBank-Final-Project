@@ -32,10 +32,11 @@ const requestSchema = mongoose.Schema(
         },
         // Reason for the request (e.g., specific patient case)
         reason: {
-            type: String,
-            required: false,
-            trim: true,
-        },
+            type: String,
+            required: false, // Ensure this is explicitly false
+            trim: true,
+            default: '' // Add a default empty string for safety
+        },
         // Status of the request lifecycle
         status: {
             type: String,

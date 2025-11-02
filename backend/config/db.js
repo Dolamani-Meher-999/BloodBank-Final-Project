@@ -3,7 +3,7 @@ import mongoose from 'mongoose';
 const connectDB = async () => {
     try {
         // Mongoose 6+ automatically handles connection options
-        const conn = await mongoose.connect(process.env.MONGO_URI);
+        const conn = await mongoose.connect(process.env.MONGODB_URI);
 
         console.log(`MongoDB Connected: ${conn.connection.host}`);
     } catch (error) {

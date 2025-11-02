@@ -21,7 +21,7 @@ const app = express();
 // --- CORS Configuration FIX ---
 app.use(cors({
     // Allow requests from your frontend development server
-    origin: 'http://localhost:5173', 
+    origin: ['http://localhost:5173', 'http://localhost:5174'], 
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
     credentials: true, 
 }));
@@ -45,7 +45,8 @@ app.use('/api/v1/requests', requestRoutes);
 app.use(notFound);
 app.use(errorHandler);
 
-const PORT = process.env.PORT || 5000;
+// Using port 5004 to resolve port conflict
+const PORT = 5004;
 
 app.listen(
     PORT,
